@@ -1,0 +1,172 @@
+"""
+================================================================================
+ GENERADOR DE FACTURA DE COMPRA (VERSIÓN OPTIMIZADA)
+================================================================================
+Misma funcionalidad que la versión anterior, con código más compacto:
+
+    - Los rangos de edad se recorren con una tabla de reglas en vez de
+      una cadena larga de if/elif repetidos.
+    - Una sola función de validación genérica (`pedir`) reemplaza tres
+      funciones casi idénticas (pedir_nombre, pedir_edad, pedir_monto).
+    - Los cálculos numéricos se hacen en una sola función que retorna
+      un diccionario, y el formateo de salida usa un bucle en vez de
+      20 líneas de print casi iguales.
+
+Ejecutar con:  python3 factura_optimizada.py
+================================================================================
+"""
+
+import math
+from datetime import datetime
+
+# ------------------------------------------------------------------------------
+# CONFIGURACIÓN DEL NEGOCIO (todo lo ajustable vive aquí arriba)
+# ------------------------------------------------------------------------------
+IVA = 0.13
+
+# Tabla de reglas por edad: (edad_máxima_incluida, categoría, descuento, plantilla_mensaje)
+# Se recorre en orden y se usa la primera regla cuya edad_máxima cubra al cliente.
+REGLAS_EDAD = [
+    (12,  "Niño",         0.00, "¡Hola {nombre}! Gracias por tu compra. Ven siempre acompañado de un adulto."),
+    (17,  "Adolescente",  0.05, "¡Qué bueno verte, {nombre}! Descuento estudiantil del {desc:.0f}% aplicado."),
+    (64,  "Adulto",       0.00, "Gracias por su compra, {nombre}. Esperamos que vuelva pronto."),
+    (120, "Adulto mayor", 0.15, "Es un placer atenderle, {nombre}. Descuento de tercera edad del {desc:.0f}%."),
+]
+
+# Tabla de descuento por monto: (monto_mínimo, descuento) — se evalúa de mayor a menor.
+DESCUENTOS_POR_MONTO = [(100, 0.10), (50, 0.05), (0, 0.00)]
+
+
+# ------------------------------------------------------------------------------
+# ENTRADA Y VALIDACIÓN (una sola función genérica reutilizable)
+# ------------------------------------------------------------------------------
+def pedir(mensaje: str, validador, error: str):
+    """Pide un dato por consola hasta que `validador(valor)` retorne algo
+    verdadero; retorna ese valor ya convertido/transformado."""
+    while True:
+        valor = input(mensaje).strip()
+        resultado = validador(valor)
+        if resultado is not None:
+            return resultado
+        print(f"  ⚠ {error}")
+
+
+def validar_nombre(v):
+    return v.title() if v and all(c.isalpha() or c.isspace() for c in v) else None
+
+
+def validar_edad(v):
+    return int(v) if v.isdigit() and 0 < int(v) <= 120 else None
+
+
+def validar_monto(v):
+    try:
+        m = float(v)
+        return m if m > 0 else None
+    except ValueError:
+        return None
+
+
+# ------------------------------------------------------------------------------
+# LÓGICA DE NEGOCIO
+# ------------------------------------------------------------------------------
+def regla_por_edad(edad: int) -> tuple:
+    """Devuelve (categoria, descuento_edad, plantilla_mensaje) según la edad."""
+    for edad_max, categoria, descuento, plantilla in REGLAS_EDAD:
+        if edad <= edad_max:
+            return categoria, descuento, plantilla
+
+
+def descuento_por_monto(monto: float) -> float:
+    """Devuelve el descuento correspondiente al primer umbral que el monto alcanza."""
+    return next(d for minimo, d in DESCUENTOS_POR_MONTO if monto >= minimo)
+
+
+def calcular_factura(nombre: str, edad: int, monto: float) -> dict:
+    categoria, desc_edad, plantilla = regla_por_edad(edad)
+    desc_monto = descuento_por_monto(monto)
+    tasa_final = max(desc_edad, desc_monto)  # el cliente siempre recibe el mejor beneficio
+
+    descuento_valor = round(monto * tasa_final, 2)
+    subtotal = round(monto - descuento_valor, 2)
+    monto_iva = round(subtotal * IVA, 2)
+    total = round(subtotal + monto_iva, 2)
+
+    return {
+        "nombre": nombre, "edad": edad, "categoria": categoria,
+        "mensaje": plantilla.format(nombre=nombre, desc=max(desc_edad, desc_monto) * 100),
+        "caracteres_nombre": len(nombre.replace(" ", "")),
+        "monto": monto, "raiz_monto": round(math.sqrt(monto), 4),
+        "desc_edad": desc_edad, "desc_monto": desc_monto, "tasa_final": tasa_final,
+        "descuento_valor": descuento_valor, "subtotal": subtotal,
+        "monto_iva": monto_iva, "total": total,
+        "fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+    }
+
+
+# ------------------------------------------------------------------------------
+# SALIDA: FACTURA FORMATEADA
+# ------------------------------------------------------------------------------
+def imprimir_factura(d: dict):
+    ancho = 56
+    secciones = [
+        ("DATOS DEL CLIENTE", [
+            ("Nombre", d["nombre"]),
+            ("Edad", f"{d['edad']} años"),
+            ("Categoría", d["categoria"]),
+            ("Caracteres en el nombre", d["caracteres_nombre"]),
+        ]),
+        ("DETALLE DE CÁLCULOS", [
+            ("Monto de la compra", f"${d['monto']:.2f}"),
+            ("Raíz cuadrada del monto", d["raiz_monto"]),
+            ("Descuento por edad", f"{d['desc_edad'] * 100:.0f}%"),
+            ("Descuento por monto", f"{d['desc_monto'] * 100:.0f}%"),
+            ("Descuento aplicado", f"{d['tasa_final'] * 100:.0f}%"),
+            ("Valor del descuento", f"-${d['descuento_valor']:.2f}"),
+            ("Subtotal", f"${d['subtotal']:.2f}"),
+            (f"IVA ({IVA * 100:.0f}%)", f"+${d['monto_iva']:.2f}"),
+        ]),
+    ]
+
+    print("\n" + "=" * ancho)
+    print("FACTURA DE COMPRA".center(ancho))
+    print("=" * ancho)
+    print(f"Fecha de emisión : {d['fecha']}")
+
+    for titulo, filas in secciones:
+        print("-" * ancho)
+        print(titulo)
+        for etiqueta, valor in filas:
+            print(f"  {etiqueta:<26} : {valor}")
+
+    print("-" * ancho)
+    print(f"  {'MENSAJE':<26} : {d['mensaje']}")
+    print("-" * ancho)
+    print(f"  {'TOTAL A PAGAR':<26} : ${d['total']:.2f}")
+    print("=" * ancho)
+    print("¡Gracias por su compra!".center(ancho))
+    print("=" * ancho + "\n")
+
+
+# ------------------------------------------------------------------------------
+# PROGRAMA PRINCIPAL
+# ------------------------------------------------------------------------------
+def main():
+    print("=== SISTEMA DE FACTURACIÓN ===\n")
+    while True:
+        nombre = pedir("Nombre del cliente: ", validar_nombre,
+                        "El nombre solo puede tener letras y espacios.")
+        edad = pedir("Edad del cliente: ", validar_edad,
+                      "Ingrese un entero válido entre 1 y 120.")
+        monto = pedir("Monto de la compra ($): ", validar_monto,
+                       "Ingrese un número mayor a cero.")
+
+        imprimir_factura(calcular_factura(nombre, edad, monto))
+
+        if input("¿Generar otra factura? (s/n): ").strip().lower() != "s":
+            print("Programa finalizado. ¡Hasta pronto!")
+            break
+
+
+if __name__ == "__main__":
+    main()
